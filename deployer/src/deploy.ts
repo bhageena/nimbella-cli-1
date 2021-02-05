@@ -397,7 +397,7 @@ function encodeParameters(normalParms: openwhisk.Dict, envParms: openwhisk.Dict)
 }
 
 // Deploy an action when the code has already been read from a file or constructed programmatically or when the
-// action is a sequence (Sequence passed in lieu of code).
+ // of the ActionSpec are ignored but the rest of the ActionSpec is interpreted here.
 async function deployActionFromCodeOrSequence(action: ActionSpec, spec: DeployStructure,
   code: string, sequence: openwhisk.Sequence, pkgIsClean: boolean): Promise<DeployResponse> {
   const name = action.package && action.package !== 'default' ? `${action.package}/${action.name}` : action.name

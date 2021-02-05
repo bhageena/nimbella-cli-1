@@ -29,7 +29,7 @@ export {
   addCredentialAndSave, getCredentials, getCredentialList, getCredentialDict, getCredentialsForNamespace, forgetNamespace, switchNamespace, getCurrentNamespace,
   getApiHosts, Persister, fileSystemPersister, browserPersister, authPersister, addGithubAccount, getGithubAccounts, deleteGithubAccount, getGithubAuth, getCredentialsFromEnvironment,
   switchGithubAccount, getPostmanKeys, deletePostmanKey, switchPostmanKey, addPostmanKey, getPostmanCurrentKey, addCommanderData, recordNamespaceOwnership, nimbellaDir, setInBrowser
-} from './credentials'
+export { extFromRuntime, wskRequest, inBrowser, RuntimeTable, getExclusionList, isExcluded, SYSTEM_EXCLUDE_PATTERNS } from './util'
 export { cleanBucket, restore404Page, makeStorageClient } from './deploy-to-bucket'
 export { extFromRuntime, wskRequest, inBrowser, RuntimeTable, delay, writeSliceResult, getBestProjectName, isTextType, renamePackage } from './util'
 export { GithubDef, isGithubRef, parseGithubRef, fetchProject } from './github'

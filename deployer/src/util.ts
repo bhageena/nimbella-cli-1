@@ -12,8 +12,8 @@
  */
 
 import {
-  DeployStructure, DeployResponse, DeploySuccess, DeployKind, ActionSpec, PackageSpec, Feedback,
-  DeployerAnnotation, WebResource, VersionMap, VersionEntry, BucketSpec, PathKind, ProjectReader, KeyVal
+    DeployStructure, DeployResponse, DeploySuccess, DeployKind, ActionSpec, PackageSpec, Feedback,
+    DeployerAnnotation, WebResource, VersionMap, VersionEntry, BucketSpec, Includer, PathKind, ProjectReader
 } from './deploy-struct'
 import { getUserAgent } from './api'
 import { XMLHttpRequest } from 'xmlhttprequest'
@@ -28,12 +28,25 @@ import * as randomstring from 'randomstring'
 import * as crypto from 'crypto'
 import * as yaml from 'js-yaml'
 import * as makeDebug from 'debug'
+import anymatch from 'anymatch';
 import { parseGithubRef } from './github'
 import { StorageProvider } from '@nimbella/storage-provider'
 const debug = makeDebug('nim:deployer:util')
 
+//TODO: Deprecate this use EXCLUDE_MATCHES instead
 // List of files to skip as actions inside packages, or from auto-zipping
 export const FILES_TO_SKIP = ['.gitignore', '.DS_Store']
+
+
+// List of files/paths to be ignored, add https://github.com/micromatch/anymatch compatible definitions
+export const SYSTEM_EXCLUDE_PATTERNS = ['.ignore', '.build', 'build.sh', 'build.cmd', '__deployer__.zip', '.gitignore', '.DS_Store',
+    _ => _.includes('.nimbella'),
+    _ => _.includes('_tmp_'),
+    _ => _.includes('.#'),
+    _ => _.endsWith('~'),
+    _ => _.endsWith('.swp'),
+    _ => _.endsWith('.swx'),
+];
 
 // Flag indicating running in browser
 export const inBrowser = (typeof process === 'undefined') || (!process.release) || (process.release.name !== 'node')
@@ -44,7 +57,7 @@ export const inBrowser = (typeof process === 'undefined') || (!process.release) 
 
 // Read the project config file, with validation
 export function loadProjectConfig(configFile: string, envPath: string, filePath: string, reader: ProjectReader,
-  feedback: Feedback): Promise<DeployStructure> {
+    feedback: Feedback): Promise<DeployStructure> {
   return reader.readFileContents(configFile).then(async data => {
     try {
       const content = substituteFromEnvAndFiles(String(data), envPath, filePath, feedback)
@@ -238,71 +251,71 @@ export function validateDeployConfig(arg: any): string {
     switch (item) {
     case 'slice':
       continue
-    case 'cleanNamespace':
-      if (!(typeof arg[item] === 'boolean')) {
-        return `${item} must be a boolean`
-      }
-      break
-    case 'targetNamespace': {
-      if (!(typeof (arg[item]) === 'string') && !isValidOwnership(arg[item])) {
-        return `${item} must be a string or a dictionary containing 'test' and/or 'production' members`
-      }
-      break
-    }
-    case 'web': {
-      if (!Array.isArray(arg[item])) {
-        return 'web member must be an array'
-      }
-      for (const subitem of arg[item]) {
-        const webError = validateWebResource(subitem)
-        if (webError) {
-          return webError
-        }
-      }
-      break
-    }
-    case 'packages': {
-      if (!Array.isArray(arg[item])) {
-        return 'packages member must be an array'
-      }
-      for (const subitem of arg[item]) {
-        const pkgError = validatePackageSpec(subitem)
-        if (pkgError) {
-          return pkgError
-        }
-      }
-      break
-    }
-    case 'actionWrapPackage': {
-      if (!(typeof arg[item] === 'string')) {
-        return `${item} member must be a string`
-      }
-      haveActionWrap = arg[item].length > 0
-      break
-    }
-    case 'bucket': {
-      haveBucket = true
-      const optionsError = validateBucketSpec(arg[item])
-      if (optionsError) {
-        return optionsError
-      }
-      break
-    }
-    case 'parameters':
-    case 'environment': {
-      if (!isDictionary(arg[item])) {
-        return `${item} member must be a dictionary`
-      }
-      break
-    }
+            case 'cleanNamespace':
+                if (!(typeof (arg[item] == 'boolean'))) {
+                    return `${item} must be a boolean`
+                }
+                break
+            case 'targetNamespace': {
+                if (!(typeof (arg[item]) === 'string') && !isValidOwnership(arg[item])) {
+                    return `${item} must be a string or a dictionary containing 'test' and/or 'production' members`
+                }
+                break
+            }
+            case 'web': {
+                if (!Array.isArray(arg[item])) {
+                    return "web member must be an array"
+                }
+                for (const subitem of arg[item]) {
+                    const webError = validateWebResource(subitem)
+                    if (webError) {
+                        return webError
+                    }
+                }
+                break
+            }
+            case 'packages': {
+                if (!Array.isArray(arg[item])) {
+                    return "packages member must be an array"
+                }
+                for (const subitem of arg[item]) {
+                    const pkgError = validatePackageSpec(subitem)
+                    if (pkgError) {
+                        return pkgError
+                    }
+                }
+                break
+            }
+            case 'actionWrapPackage': {
+                if (!(typeof arg[item] == 'string')) {
+                    return `${item} member must be a string`
+                }
+                haveActionWrap = arg[item].length > 0
+                break
+            }
+            case 'bucket': {
+                haveBucket = true
+                const optionsError = validateBucketSpec(arg[item])
+                if (optionsError) {
+                    return optionsError
+                }
+                break
+            }
+            case 'parameters':
+            case 'environment': {
+                if (!isDictionary(arg[item])) {
+                    return `${item} member must be a dictionary`
+                }
+                break
+            }
     case 'credentials':
     case 'flags':
     case 'deployerAnnotation':
       if (slice) continue
       // In a slice we accept these without further validation; otherwise, they are illegal
       // Otherwise, fall through
-    default:
-      return `Invalid key '${item}' found in project.yml`
+            default:
+                return `Invalid key '${item}' found in project.yml`
     }
   }
   if (haveActionWrap && haveBucket) {
@@ -324,7 +337,7 @@ function isValidOwnership(item: any): boolean {
 // Validator for BucketSpec
 function validateBucketSpec(arg: Record<string, any>): string {
   for (const item in arg) {
-    switch (item) {
+        switch (item) {
     case 'prefixPath':
     case 'mainPageSuffix':
     case 'notFoundPage':
@@ -521,7 +534,7 @@ export function keyVal(from: Dict): KeyVal[] {
   if (!from) {
     return undefined
   }
-  return Object.keys(from).map(key => ({ key, value: from[key] }))
+    return Object.keys(from).map(key => ({ key, value: from[key] }))
 }
 
 // Make an openwhisk KeyVal into an openwhisk Dict (the former appears in Action and Package, the latter in ActionSpec and PackageSpec)
@@ -547,7 +560,7 @@ export function errorStructure(err: Error): DeployStructure {
 
 // Provide an empty DeployResponse with all required members defined but empty
 export function emptyResponse(): DeployResponse {
-  return { successes: [], failures: [], ignored: [], namespace: undefined, packageVersions: {}, actionVersions: {} }
+    return { successes: [], failures: [], ignored: [], namespace: undefined, packageVersions: {}, actionVersions: {} }
 }
 
 // Combine multiple DeployResponses into a single DeployResponse
@@ -565,15 +578,15 @@ export function combineResponses(responses: DeployResponse[]): DeployResponse {
   const actionVersions = responses.reduce((prev, curr) => Object.assign(prev, curr.actionVersions), {})
   const webHashes = responses.reduce((prev, curr) => Object.assign(prev, curr.webHashes || {}), {})
   const namespace = responses.map(r => r.namespace).reduce((prev, curr) => prev || curr)
-  return { successes, failures, ignored, packageVersions, actionVersions, webHashes, namespace }
+    return { successes, failures, ignored, packageVersions, actionVersions, webHashes, namespace }
 }
 
 // Turn the strays from a DeployStructure into a response indicating that they were skipped
 export function straysToResponse(strays: string[]): DeployResponse {
-  return {
-    successes: [],
-    ignored: strays,
-    failures: [],
+    return {
+        successes: [], ignored: strays, failures: [], packageVersions: {}, actionVersions: {},
+        namespace: undefined
+    }
     packageVersions: {},
     actionVersions: {},
     namespace: undefined
@@ -582,9 +595,9 @@ export function straysToResponse(strays: string[]): DeployResponse {
 
 // Wrap a single success as a DeployResponse
 export function wrapSuccess(name: string, kind: DeployKind, skipped: boolean, wrapping: string, actionVersions: VersionMap,
-  namespace: string): DeployResponse {
+    namespace: string): DeployResponse {
   const success: DeploySuccess = { name, kind, skipped, wrapping }
-  return { successes: [success], failures: [], ignored: [], namespace, packageVersions: {}, actionVersions }
+    return { successes: [success], failures: [], ignored: [], namespace, packageVersions: {}, actionVersions }
 }
 
 // Wrap a single error as a DeployResponse
@@ -593,7 +606,7 @@ export function wrapError(err: any, context: string): DeployResponse {
   if (typeof err === 'object') {
     err.context = context
   }
-  const result = { successes: [], failures: [err], ignored: [], packageVersions: {}, actionVersions: {}, namespace: undefined }
+    const result = { successes: [], failures: [err], ignored: [], packageVersions: {}, actionVersions: {}, namespace: undefined }
   debug('wrapped error: %O', result)
   return result
 }
@@ -625,7 +638,7 @@ export function actionFileToParts(fileName: string): { name: string, binary: boo
     const parts = name.split('.')
     const ext = parts[parts.length - 1]
     let mid: string
-    if (parts.length === 2) {
+        if (parts.length == 2) {
       name = parts[0]
     } else if (ext === 'zip') {
       [name, mid] = getNameAndMid(parts.slice(0, -1))
@@ -669,18 +682,18 @@ function getNameAndMid(parts: string[]): string[] {
 // The following tables are populated (once) by reading a copy of runtimes.json
 
 // Table of extensions, providing the unqualified runtime 'kind' for each extension
-type ExtensionToRuntime = { [ key: string]: string }
-const extTable: ExtensionToRuntime = { }
+type ExtensionToRuntime = { [key: string]: string }
+const extTable: ExtensionToRuntime = {}
 
 // Table of extensions, saying whether the extension implies binary or not
-type ExtensionToBinary = { [ key: string]: boolean }
+type ExtensionToBinary = { [key: string]: boolean }
 const extBinaryTable: ExtensionToBinary = {
   zip: true
 }
 
 // A map from actual runtime names, full colon-separated syntax, to lists of possible extensions
-type RuntimeToExtensions = { [ key: string]: string[] }
-const validRuntimes: RuntimeToExtensions = { }
+type RuntimeToExtensions = { [key: string]: string[] }
+const validRuntimes: RuntimeToExtensions = {}
 
 // A map from unqualified runtime name to the default kind for that runtime name
 const defaultTable: Record<string, string> = { }
@@ -688,9 +701,9 @@ const defaultTable: Record<string, string> = { }
 // Provide information from runtimes.json, reading it at most once
 let runtimesRead = false
 type ExtensionDetail = { binary: boolean }
-type ExtensionEntry = { [ key: string]: ExtensionDetail }
+type ExtensionEntry = { [key: string]: ExtensionDetail }
 export type RuntimeEntry = { kind: string, default: boolean, extensions: ExtensionEntry }
-export type RuntimeTable = { [ key: string ]: RuntimeEntry[] }
+export type RuntimeTable = { [key: string]: RuntimeEntry[] }
 function initRuntimes() {
   if (!runtimesRead) {
     runtimesRead = true
@@ -858,10 +871,10 @@ export function substituteFromEnvAndFiles(input: string, envPath: string, projec
       subst = getSubstituteFromFile(fileSubst)
     } else {
       subst = process.env[envar] || props[envar]
-    }
-    if (!subst) {
+        }
+        if (!subst) {
       badVars.push(envar)
-      subst = ''
+            subst = ""
     }
     debug('substitution is: %s', subst)
     result = result + before + subst
@@ -935,7 +948,7 @@ function getPropsFromFile(filePath: string): Record<string, string> {
   const contents = fs.readFileSync(filePath)
   try {
     return JSON.parse(String(contents))
-  } catch {
+    } catch { }
     // Do nothing
   }
   // It's not JSON, so see if it's a properties file
@@ -988,10 +1001,10 @@ export function convertPairsToResources(pairs: string[][]): WebResource[] {
 
 // Types for the map versions of the PackageSpec and ActionSpec types
 export interface PackageMap {
-    [ key: string]: PackageSpec
+    [key: string]: PackageSpec
 }
 export interface ActionMap {
-    [ key: string]: ActionSpec
+    [key: string]: ActionSpec
 }
 
 // Turn a PackageSpec array into a PackageMap
@@ -1065,7 +1078,7 @@ export async function getDeployerAnnotation(project: string, githubPath: string)
 
 function deployerAnnotationFromGithub(githubPath: string): DeployerAnnotation {
   const def = parseGithubRef(githubPath)
-  const repository = `githhub:${def.owner}/${def.repo}`
+    const repository = `github:${def.owner}/${def.repo}`
   return { digest: undefined, user: 'cloud', repository, projectPath: def.path, commit: def.ref || 'master' }
 }
 
@@ -1112,8 +1125,8 @@ export function generateSecret(): string {
 // The workbench 'project deploy' command will never set this flag
 // Developers using the deployProject CLI may set this flag but presumably will only do so by intention.
 export function saveUsFromOurselves(namespace: string, apihost: string): boolean {
-  let sensitiveNamespaces : string[]
-  let productionProjects : string[]
+    let sensitiveNamespaces: string[]
+    let productionProjects: string[]
   try {
     sensitiveNamespaces = require('../sensitiveNamespaces.json')
     productionProjects = require('../productionProjects.json')
@@ -1233,7 +1246,7 @@ export function writeProjectStatus(project: string, results: DeployResponse, rep
   let versionList: VersionEntry[] = []
   const versionFile = path.join(statusDir, 'versions.json')
   if (fs.existsSync(versionFile)) {
-    debug('version file alread exists')
+        debug('version file already exists')
     const old = JSON.parse(String(fs.readFileSync(versionFile)))
     if (Array.isArray(old)) {
       versionList = old
@@ -1331,7 +1344,7 @@ export function wskRequest(url: string, auth: string = undefined): Promise<any> 
     }
     xhr.onerror = function() {
       debug('network error')
-      reject(new Error('Network error'))
+            reject({ statusText: "Network error" })
     }
     if (auth) {
       debug('Setting basic authorization header')
@@ -1341,22 +1354,22 @@ export function wskRequest(url: string, auth: string = undefined): Promise<any> 
   })
 }
 
-// Subroutine to get the correct storage provider based on what's in StorageKey "candidate"
-// (just a dictionary at this point)
-export function getStorageProvider(rawStorageCreds: Record<string, any>): StorageProvider {
-  const provider = rawStorageCreds.provider
-  // The static requires in the following are needed for webpacking the workbench correctly.
-  // Don't try to simplify them out of existence.
-  if (!provider || provider === '@nimbella/storage-gcs') {
-    // raw storage keys with no provider are grandfathered as gcs, but explicit is also fine
-    return require('@nimbella/storage-gcs').default
-  } else if (provider === '@nimbella/storage-s3') {
-    return require('@nimbella/storage-s3').default
-  } else {
-    // This won't work in the workbench but will work in the CLI when first introducing a new provider
-    return require(provider)
-  }
+// Checks if a given pattern matches exclusion list, defined by system or user via global .exclude file.  
+export function isExcluded(match: string): boolean {
+    return anymatch(getExclusionList(), match);
 }
+
+// Returns full list of exclusion patterns, predefined or listed in the global .exclude file.  
+export function getExclusionList(): string[] {
+    let userDefinedPatterns = []
+    try {
+        const globalExcludeFile = path.join(process.cwd(), '.exclude')
+        userDefinedPatterns = fs.readFileSync(globalExcludeFile).toString().split("\n").filter(e => e.toString().trim() !== '');
+    } catch (e) {
+        debug(e.message)
+    }
+    const allPatterns = [...userDefinedPatterns, ...SYSTEM_EXCLUDE_PATTERNS]
+    return allPatterns
 
 // Utility to rename a package in a DeployStructure in a safe and consistent way.
 // Will throw if the oldName does not match a package in the spec.
