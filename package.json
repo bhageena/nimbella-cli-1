@@ -43,7 +43,6 @@
     "node-dir": "0.1.17",
     "open": "^6.3.0",
     "openwhisk": "3.18.0",
-    "patch-package": "^6.2.2",
     "postinstall-prepare": "^1.0.1",
     "properties-parser": "0.3.1",
     "randomstring": "^1.1.5",
@@ -202,7 +201,7 @@
     }
   },
   "scripts": {
-    "prepare": "npm run version-check && patch-package",
+    "prepare": "npm run version-check",
     "postpack": "rimraf oclif.manifest.json",
     "prepack": "rimraf lib && tsc -b && npm run minify && oclif-dev manifest && oclif-dev readme",
     "test": "echo NO TESTS",
